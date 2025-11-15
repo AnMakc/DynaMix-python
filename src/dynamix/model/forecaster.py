@@ -134,7 +134,8 @@ class DynaMixForecaster:
     
     @torch.no_grad()
     def forecast(self, context, horizon, preprocessing_method="pos_embedding", 
-                standardize=True, fit_nonstationary=False, initial_x=None):
+                standardize=True, fit_nonstationary=False, initial_x=None,
+                output_hidden_states=False):
         """
         Efficient batched forecasting with the DynaMix model.
         
@@ -152,9 +153,13 @@ class DynaMixForecaster:
             standardize: Whether to standardize the data (default: True)
             fit_nonstationary: Whether to fit a non-stationary time series (default: False)
             initial_x: Optional initial condition of shape (batch_size, feature_dim) or (feature_dim,)
+            output_hidden_states: Whether to return latent space hidden states (default: False)
             
         Returns:
-            Predicted sequence of shape (horizon, batch_size, feature_dim)
+            Predicted sequence of shape (horizon, batch_size, feature_dim) if output_hidden_states is False,
+            else a tuple (predicted_sequence, latent_states) where:
+                - predicted_sequence: (horizon, batch_size, feature_dim)
+                - latent_states: (horizon, batch_size, M)
         """
         # Get model dimensions
         M = self.model.M
@@ -188,12 +193,16 @@ class DynaMixForecaster:
                 Z_gen[t] = z
 
         # Step 4: Apply observation generation
-        output = Z_gen[:, :shape_metadata[1], :].permute(0, 2, 1)  # (horizon, batch_size, feature_dim)
+        Z_gen = Z_gen.permute(0, 2, 1)  # (horizon, batch_size, M)
+        output = Z_gen[:, :, :shape_metadata[1]]  # (horizon, batch_size, feature_dim)
         
         # Step 5: Apply inverse data transformations (e.g. standardization, ...)
         output = preprocessor.postprocess(output)
         
         # Step 6: Reshape back to original dimensions if needed
         output = self._reshape_to_original(output, shape_metadata)
+
+        if output_hidden_states:
+            return output, Z_gen
         
         return output
